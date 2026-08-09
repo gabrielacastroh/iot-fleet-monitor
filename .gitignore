@@ -27,7 +27,8 @@ mobile/ios/Pods/
 mobile/ios/.symlinks/
 mobile/ios/Flutter/Flutter.framework
 mobile/ios/Flutter/Flutter.podspec
-mobile/**/*.g.dart
-mobile/**/*.freezed.dart
+mobile/flutter_*.log
+# Los generados por build_runner (*.g.dart, *.freezed.dart) SI se versionan:
+# el evaluador clona y corre sin pasos extra.
 
 .DS_Store
