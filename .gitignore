@@ -1,0 +1,33 @@
+# Configuración local — versionamos solo los .example
+.env
+frontend/.env
+
+# Base de datos de desarrollo (SQLite, solo en el modo sin Docker)
+backend/fleet.db
+
+# Artefactos de Node (frontend/)
+node_modules/
+frontend/dist/
+
+# Artefactos de Python (backend/ y simulator/)
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Flutter/Dart build artifacts (mobile/)
+mobile/build/
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+mobile/ios/Flutter/Flutter.framework
+mobile/ios/Flutter/Flutter.podspec
+mobile/**/*.g.dart
+mobile/**/*.freezed.dart
+
+.DS_Store
