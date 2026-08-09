@@ -19,6 +19,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session
 
+import app.websocket.router as ws_router
 from app.auth.security import create_access_token, hash_password
 from app.database.base import Base
 from app.database.session import get_db
@@ -66,9 +67,16 @@ def ws_client():
 
         app.dependency_overrides[get_db] = override_get_db
 
+        # /ws/telemetry no toma la sesión por Depends (la soltaría recién al
+        # cerrarse el socket), así que dependency_overrides no lo alcanza:
+        # hay que apuntar su factory a la base temporal a mano.
+        original_factory = ws_router.async_session_factory
+        ws_router.async_session_factory = session_factory
+
         with TestClient(app) as client:
             yield client, admin_token
 
+        ws_router.async_session_factory = original_factory
         app.dependency_overrides.clear()
 
 

@@ -1,10 +1,10 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.security import InvalidTokenError, decode_access_token
-from app.database.session import get_db
+from app.database.session import async_session_factory
 from app.models.user import User, UserRole
 from app.repositories import user_repository
 from app.websocket.manager import manager
@@ -37,9 +37,16 @@ async def _authenticate(token: str | None, db: AsyncSession) -> User | None:
 async def telemetry_ws(
     websocket: WebSocket,
     token: Annotated[str | None, Query()] = None,
-    db: AsyncSession = Depends(get_db),
 ) -> None:
-    user = await _authenticate(token, db)
+    # La sesión se abre a mano y se cierra acá mismo, en vez de venir por
+    # Depends(get_db): una dependencia con yield se libera recién cuando
+    # retorna el endpoint, y este endpoint vive lo que dure el WebSocket.
+    # Cada conexión abierta se quedaba con una conexión del pool (de 15) en
+    # `idle in transaction` hasta desconectarse, y con el pool agotado hasta
+    # el login empezaba a dar timeout. La base solo hace falta para autenticar.
+    async with async_session_factory() as db:
+        user = await _authenticate(token, db)
+
     if user is None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
