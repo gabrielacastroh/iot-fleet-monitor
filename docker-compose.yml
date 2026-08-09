@@ -1,0 +1,117 @@
+# Stack completo de evaluación: base de datos, backend, frontend y simulador.
+#
+#   docker compose up --build
+#
+# Todas las variables tienen default, así que funciona sin crear un .env.
+# Copiar .env.example a .env solo hace falta para cambiar algún valor.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fleet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fleet}
+      POSTGRES_DB: ${POSTGRES_DB:-fleet}
+    # Sin puerto publicado a propósito: nada fuera de la red de compose la
+    # necesita, y 5432 suele estar ocupado por un Postgres local.
+    # Para inspeccionarla: docker compose exec db psql -U fleet -d fleet
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fleet} -d ${POSTGRES_DB:-fleet}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fleet-net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    environment:
+      # Dentro de la red de compose la base se llama `db`, no localhost.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-fleet}:${POSTGRES_PASSWORD:-fleet}@db:5432/${POSTGRES_DB:-fleet}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
+      # Origenes que el navegador puede usar contra la API. El frontend de
+      # este compose vive en 5173; agregar acá cualquier otro (por ejemplo
+      # el puerto que use `flutter run -d chrome`).
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:5173"]}
+      # Cuentas de demo que crea app/seed.py en cada arranque.
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@fleet.io}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-admin12345}
+      SEED_USER_EMAIL: ${SEED_USER_EMAIL:-user@fleet.io}
+      SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-user12345}
+    # Migraciones, cuentas de demo y recién ahí el server. Cuando el
+    # healthcheck pasa, la API está lista y las cuentas ya existen.
+    command: >
+      sh -c "alembic upgrade head &&
+             python -m app.seed &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    ports:
+      # Publicado en 0.0.0.0, así que un móvil físico en la misma red LAN
+      # llega a http://<ip-del-host>:8000 sin configuración extra.
+      - "8000:8000"
+    volumes:
+      - ./backend/app:/code/app
+    healthcheck:
+      test:
+        ["CMD", "python", "-c",
+         "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - fleet-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    environment:
+      # Las resuelve el navegador del evaluador, no el contenedor: van a
+      # localhost del host, no al nombre de servicio `backend`.
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+      VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:8000/ws/telemetry}
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - fleet-net
+
+  simulator:
+    build:
+      context: ./simulator
+    environment:
+      # Necesita la cuenta admin: dar de alta dispositivos es admin-only.
+      SIMULATOR_EMAIL: ${SEED_ADMIN_EMAIL:-admin@fleet.io}
+      SIMULATOR_PASSWORD: ${SEED_ADMIN_PASSWORD:-admin12345}
+    # Escenario `demo`: seis vehículos que cubren todos los estados que
+    # pinta el dashboard, incluido uno que dispara una alerta a los ~30-60s.
+    # Con --seed la corrida es reproducible lectura por lectura.
+    command:
+      - python
+      - -m
+      - simulator
+      - --base-url=http://backend:8000
+      - --scenario=${SIMULATOR_SCENARIO:-demo}
+      - --seed=${SIMULATOR_SEED:-42}
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - fleet-net
+
+networks:
+  fleet-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
