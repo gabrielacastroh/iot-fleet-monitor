@@ -1,0 +1,8 @@
+.venv
+__pycache__
+*.pyc
+fleet.db
+.env
+.git
+.pytest_cache
+app/tests
